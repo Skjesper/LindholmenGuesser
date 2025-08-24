@@ -13,17 +13,14 @@ import FotoguesserHeader from '@/components/FotoguesserHeader/FotoguesserHeader'
 function GamePageContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const [progress, setProgress] = useState(0);
-  const [timerFinished, setTimerFinished] = useState(false);
   const [currentLevel, setCurrentLevel] = useState(1);
   const [gameLocation, setGameLocation] = useState(null);
   const [userLocation, setUserLocation] = useState(null);
   const [timeRemaining, setTimeRemaining] = useState(0);
-  const [gpsStatus, setGpsStatus] = useState('loading'); // 'loading', 'success', 'error'
+  const [gpsStatus, setGpsStatus] = useState('loading');
   const [isCheckingLocation, setIsCheckingLocation] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
   
-  // Läs level från URL parametrar
   useEffect(() => {
     const level = searchParams.get('level');
     if (level) {
@@ -31,41 +28,29 @@ function GamePageContent() {
     }
   }, [searchParams]);
 
-  // Generera slumpmässig koordinat mellan 30-50m från användarens position (för testing)
   const generateRandomLocation = (centerLat, centerLng) => {
     const minDistance = 70;
     const maxDistance = 90;
     const distance = minDistance + Math.random() * (maxDistance - minDistance);
     
-    // Korrekt konvertering till grader (1 grad ≈ 111,320 meter vid ekvatorn)
     const radiusInDegrees = distance / 111320;
     const angle = Math.random() * 2 * Math.PI;
     
     const deltaLat = radiusInDegrees * Math.cos(angle);
-    // Justera för latitud (längdgrader blir kortare när man går norrut)
     const deltaLng = radiusInDegrees * Math.sin(angle) / Math.cos(centerLat * Math.PI / 180);
     
-    const newLocation = {
+    return {
       lat: centerLat + deltaLat,
       lng: centerLng + deltaLng
     };
-    
-    // Verifiera avståndet med Vincenty för att säkerställa korrekthet
-    const actualDistance = calculateDistance(centerLat, centerLng, newLocation.lat, newLocation.lng);
-    console.log(`Genererat mål på ${actualDistance.toFixed(1)} meter avstånd (target: ${distance.toFixed(1)}m)`);
-    
-    return newLocation;
   };
 
-  // Hämta GPS och generera spel-plats
   useEffect(() => {
     if (!navigator.geolocation) {
-      console.log('GPS inte tillgängligt');
       setGpsStatus('error');
       return;
     }
 
-    // Snabb GPS-hämtning för initial laddning
     navigator.geolocation.getCurrentPosition(
       (position) => {
         const userPos = {
@@ -76,44 +61,27 @@ function GamePageContent() {
         setGameLocation(generateRandomLocation(userPos.lat, userPos.lng));
         setGpsStatus('success');
       },
-      (error) => {
-        console.warn('GPS fel:', error);
-        setGpsStatus('error');
-      },
+      () => setGpsStatus('error'),
       {
-        enableHighAccuracy: false, // Snabbare för initial laddning
+        enableHighAccuracy: false,
         timeout: 8000,
-        maximumAge: 60000 // Bara för initial laddning - acceptera 1 min gammal
+        maximumAge: 60000
       }
     );
   }, []);
 
-  // Level-specific data
   const levelData = {
-    1: {
-      timeSlot: "08:00-11:00",
-      unlockTime: "11:00",
-      duration: 1800
-    },
-    2: {
-      timeSlot: "11:00-13:00", 
-      unlockTime: "13:00",
-      duration: 1800
-    },
-    3: {
-      timeSlot: "13:00-17:00",
-      unlockTime: "17:00", 
-      duration: 1800
-    }
+    1: { timeSlot: "08:00-11:00", unlockTime: "11:00", duration: 1800 },
+    2: { timeSlot: "11:00-13:00", unlockTime: "13:00", duration: 1800 },
+    3: { timeSlot: "13:00-17:00", unlockTime: "17:00", duration: 1800 }
   };
 
   const currentLevelData = levelData[currentLevel] || levelData[1];
 
-  // Vincenty formula för exakt cirkel-avstånd (fågelvägen) - perfekt för area-kontroll
   const calculateDistance = (lat1, lng1, lat2, lng2) => {
-    const a = 6378137; // WGS-84 major axis (meter)
-    const b = 6356752.314245; // WGS-84 minor axis (meter)  
-    const f = 1/298.257223563; // WGS-84 flattening
+    const a = 6378137;
+    const b = 6356752.314245;
+    const f = 1/298.257223563;
     
     const L = (lng2 - lng1) * Math.PI / 180;
     const U1 = Math.atan((1 - f) * Math.tan(lat1 * Math.PI / 180));
@@ -134,7 +102,7 @@ function GamePageContent() {
       sinSigma = Math.sqrt((cosU2 * sinLambda) * (cosU2 * sinLambda) + 
         (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda) * (cosU1 * sinU2 - sinU1 * cosU2 * cosLambda));
       
-      if (sinSigma === 0) return 0; // Samma punkt
+      if (sinSigma === 0) return 0;
       
       cosSigma = sinU1 * sinU2 + cosU1 * cosU2 * cosLambda;
       sigma = Math.atan2(sinSigma, cosSigma);
@@ -142,7 +110,7 @@ function GamePageContent() {
       cosSqAlpha = 1 - sinAlpha * sinAlpha;
       cos2SigmaM = cosSigma - 2 * sinU1 * sinU2 / cosSqAlpha;
       
-      if (isNaN(cos2SigmaM)) cos2SigmaM = 0; // Ekvatorial linje
+      if (isNaN(cos2SigmaM)) cos2SigmaM = 0;
       
       const C = f / 16 * cosSqAlpha * (4 + f * (4 - 3 * cosSqAlpha));
       lambdaP = lambda;
@@ -150,10 +118,7 @@ function GamePageContent() {
         (cos2SigmaM + C * cosSigma * (-1 + 2 * cos2SigmaM * cos2SigmaM)));
     } while (Math.abs(lambda - lambdaP) > 1e-12 && --iterLimit > 0);
     
-    if (iterLimit === 0) {
-      console.warn('Vincenty formula konvergerade inte');
-      return NaN;
-    }
+    if (iterLimit === 0) return NaN;
     
     const uSq = cosSqAlpha * (a * a - b * b) / (b * b);
     const A = 1 + uSq / 16384 * (4096 + uSq * (-768 + uSq * (320 - 175 * uSq)));
@@ -162,87 +127,45 @@ function GamePageContent() {
       (-1 + 2 * cos2SigmaM * cos2SigmaM) - B / 6 * cos2SigmaM * 
       (-3 + 4 * sinSigma * sinSigma) * (-3 + 4 * cos2SigmaM * cos2SigmaM)));
     
-    const distance = b * A * (sigma - deltaSigma);
-    
-    return distance; // Exakt cirkel-avstånd i meter
+    return b * A * (sigma - deltaSigma);
   };
 
-  // Hantera knapp-klick - visa modal först
   const handleFrammeClick = () => {
-    if (!gameLocation) {
-      console.log('Saknar spel-plats data');
-      return;
-    }
+    if (!gameLocation) return;
     setShowConfirmModal(true);
   };
 
-  // Kontrollera om användaren är nära målet med GPS-uppdatering och laddning
   const checkIfNearTarget = async () => {
-
     setIsCheckingLocation(true);
-    console.log('🔍 Uppdaterar GPS-position...');
 
     try {
-      // Vänta minst 3 sekunder för bättre UX
       const [position] = await Promise.all([
         new Promise((resolve, reject) => {
-          navigator.geolocation.getCurrentPosition(
-            resolve,
-            reject,
-            {
-              enableHighAccuracy: true,
-              timeout: 15000,
-              maximumAge: 0 // Tvinga ny GPS-läsning
-            }
-          );
+          navigator.geolocation.getCurrentPosition(resolve, reject, {
+            enableHighAccuracy: true,
+            timeout: 15000,
+            maximumAge: 0
+          });
         }),
-        new Promise(resolve => setTimeout(resolve, 3000)) // Minst 3 sekunder
+        new Promise(resolve => setTimeout(resolve, 3000))
       ]);
 
       const currentLat = position.coords.latitude;
       const currentLng = position.coords.longitude;
       
-      console.log(`Nuvarande position: ${currentLat}, ${currentLng}`);
-      console.log(`Målposition: ${gameLocation.lat}, ${gameLocation.lng}`);
-      
-      // Använd Vincenty för exakt cirkel-avstånd med dynamisk radie
-      const distance = calculateDistance(
-        currentLat, 
-        currentLng, 
-        gameLocation.lat, 
-        gameLocation.lng
-      );
+      const distance = calculateDistance(currentLat, currentLng, gameLocation.lat, gameLocation.lng);
 
-      // Dynamisk radie för urban miljö med byggnader/skolor
       const gpsAccuracy = position.coords.accuracy;
       const urbanBaseRadius = 45;
       const minRadius = 35;
       const maxRadius = 80;
       
-      const accuracyBuffer = Math.min(
-        Math.max(10, gpsAccuracy * 0.8),
-        35
-      );
-      
-      const dynamicRadius = Math.max(
-        minRadius, 
-        Math.min(maxRadius, urbanBaseRadius + accuracyBuffer)
-      );
-      
+      const accuracyBuffer = Math.min(Math.max(10, gpsAccuracy * 0.8), 35);
+      const dynamicRadius = Math.max(minRadius, Math.min(maxRadius, urbanBaseRadius + accuracyBuffer));
       const success = distance <= dynamicRadius;
       
-      console.log(`Cirkel-avstånd till mål: ${distance.toFixed(1)} meter`);
-      console.log(`GPS-noggrannhet: ${gpsAccuracy.toFixed(1)}m`);
-      console.log(`Dynamisk acceptans-radie: ${dynamicRadius.toFixed(1)}m`);
-      console.log(`Resultat: ${success ? 'GODKÄNT' : 'FÖR LÅNGT BORT'}`);
+      setUserLocation({ lat: currentLat, lng: currentLng });
       
-      // Uppdatera användarens position
-      setUserLocation({
-        lat: currentLat,
-        lng: currentLng
-      });
-      
-      // Navigera till gameComplete
       const params = new URLSearchParams({
         level: currentLevel.toString(),
         success: success.toString(),
@@ -259,10 +182,8 @@ function GamePageContent() {
       router.push(`/gameComplete?${params.toString()}`);
       
     } catch (error) {
-      console.warn('GPS-uppdatering misslyckades:', error);
       setIsCheckingLocation(false);
       
-      // Navigera med fel-information
       const params = new URLSearchParams({
         level: currentLevel.toString(),
         success: 'false',
@@ -279,16 +200,10 @@ function GamePageContent() {
   };
 
   const handleProgress = (progressValue) => {
-    setProgress(progressValue);
-    // Beräkna tid kvar baserat på progress och total duration
     const totalTime = currentLevelData.duration;
     const elapsed = (progressValue / 100) * totalTime;
     const remaining = totalTime - elapsed;
     setTimeRemaining(Math.max(0, remaining));
-  };
-
-  const handleComplete = () => {
-    setTimerFinished(true);
   };
 
   return (
@@ -300,7 +215,7 @@ function GamePageContent() {
           <Timer 
             duration={currentLevelData.duration}
             onProgress={handleProgress}
-            onComplete={handleComplete}
+            onComplete={() => {}}
           />
           <UnlockTime>
             {currentLevelData.unlockTime}
@@ -312,7 +227,6 @@ function GamePageContent() {
             {gameLocation ? (
               <StreetViewDisplay 
                 location={gameLocation}
-                progress={progress}
               />
             ) : gpsStatus === 'loading' ? (
               <div className={styles.infoMessage}>
